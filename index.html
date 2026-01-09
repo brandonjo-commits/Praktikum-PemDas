@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fire Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --accent: #3b82f6; --danger: #ef4444; --success: #22c55e; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; font-size: 14px; }
+        
+        /* Grid Layout Compact */
+        .dashboard { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: auto auto; gap: 15px; max-width: 1000px; margin: 0 auto; }
+        
+        /* Header */
+        .header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 5px; }
+        .header h2 { margin: 0; font-size: 1.5rem; color: var(--accent); }
+        .last-update { font-size: 0.8rem; color: #94a3b8; }
+
+        /* Small Cards */
+        .card { background: var(--card); padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .card h3 { margin: 0 0 5px 0; font-size: 0.9rem; color: #94a3b8; font-weight: 500; }
+        .value { font-size: 1.8rem; font-weight: 700; }
+        
+        /* Status Text Colors */
+        .status-aman { color: var(--success); }
+        .status-bahaya { color: var(--danger); animation: pulse 1s infinite; }
+        
+        /* Chart Section */
+        .chart-container { grid-column: 1 / 3; background: var(--card); padding: 15px; border-radius: 8px; height: 250px; }
+        
+        /* Log Table Section */
+        .log-container { grid-column: 3 / 5; background: var(--card); padding: 15px; border-radius: 8px; height: 250px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; color: #94a3b8; padding-bottom: 8px; border-bottom: 1px solid #334155; }
+        td { padding: 8px 0; border-bottom: 1px solid #334155; color: #cbd5e1; }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .dashboard { grid-template-columns: 1fr 1fr; }
+            .chart-container, .log-container { grid-column: 1 / -1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <div class="header">
+            <h2>🔥 Fire Monitor</h2>
+            <span class="last-update">Updated: <span id="time">-</span></span>
+        </div>
+
+        <div class="card">
+            <h3>SUHU</h3>
+            <div class="value" id="suhu">0°C</div>
+        </div>
+        <div class="card">
+            <h3>KELEMBAPAN</h3>
+            <div class="value" id="humi">0%</div>
+        </div>
+        <div class="card">
+            <h3>STATUS GAS</h3>
+            <div class="value" id="status-gas">-</div>
+        </div>
+        <div class="card">
+            <h3>STATUS API</h3>
+            <div class="value" id="status-api">-</div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="envChart"></canvas>
+        </div>
+
+        <div class="log-container">
+            <h3>Riwayat (10 Terakhir)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Waktu</th>
+                        <th>Gas</th>
+                        <th>Api</th>
+                    </tr>
+                </thead>
+                <tbody id="log-table-body">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Setup Chart.js
+        const ctx = document.getElementById('envChart').getContext('2d');
+        const envChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Suhu (°C)', data: [], borderColor: '#3b82f6', tension: 0.4, yAxisID: 'y' },
+                    { label: 'Lembap (%)', data: [], borderColor: '#22c55e', tension: 0.4, yAxisID: 'y1' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { labels: { color: '#cbd5e1' } } },
+                scales: {
+                    x: { ticks: { display: false }, grid: { display: false } },
+                    
+                    // --- PENGATURAN SUHU (Kiri - Biru) ---
+                    y: { 
+                        type: 'linear', 
+                        display: true, 
+                        position: 'left', 
+                        min: 10,   // KUNCI MINIMUM 10 Derajat
+                        max: 100,  // KUNCI MAKSIMUM 100 Derajat
+                        grid: { color: '#334155' }, 
+                        ticks: { color: '#94a3b8' } 
+                    },
+
+                    // --- PENGATURAN KELEMBAPAN (Kanan - Hijau) ---
+                    y1: { 
+                        type: 'linear', 
+                        display: true, 
+                        position: 'right', 
+                        min: 20,   // KUNCI MINIMUM 20%
+                        max: 80,   // KUNCI MAKSIMUM 80%
+                        grid: { drawOnChartArea: false }, 
+                        ticks: { color: '#94a3b8' } 
+                    }
+                }
+            }
+        });
+
+        // Update Function
+        async function updateDashboard() {
+            try {
+                // 1. Fetch Realtime Data (Cards)
+                const resData = await fetch('/api/data');
+                const data = await resData.json();
+
+                if(!data.error) {
+                    document.getElementById('suhu').innerText = data.suhu + "°";
+                    document.getElementById('humi').innerText = data.kelembapan + "%";
+                    // Format waktu agar hanya jam:menit:detik
+                    const timePart = data.timestamp.split(' ')[1]; 
+                    document.getElementById('time').innerText = timePart;
+
+                    const gasEl = document.getElementById('status-gas');
+                    gasEl.innerText = data.status_gas;
+                    gasEl.className = data.status_gas !== 'AMAN' ? 'value status-bahaya' : 'value status-aman';
+
+                    const apiEl = document.getElementById('status-api');
+                    apiEl.innerText = data.status_api;
+                    apiEl.className = data.status_api !== 'AMAN' ? 'value status-bahaya' : 'value status-aman';
+                }
+
+                // 2. Fetch History (Chart & Table)
+                const resHist = await fetch('/api/history');
+                const history = await resHist.json();
+
+                // Update Chart
+                envChart.data.labels = history.map(d => d.timestamp.split(' ')[1]);
+                envChart.data.datasets[0].data = history.map(d => d.suhu);
+                envChart.data.datasets[1].data = history.map(d => d.kelembapan);
+                envChart.update();
+
+                // Update Table (Reverse lagi biar yg paling baru di atas untuk tabel)
+                const tableBody = document.getElementById('log-table-body');
+                tableBody.innerHTML = '';
+                [...history].reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    const isDanger = row.status_gas !== 'AMAN' || row.status_api !== 'AMAN';
+                    tr.style.color = isDanger ? '#ef4444' : '#cbd5e1';
+                    
+                    tr.innerHTML = `
+                        <td>${row.timestamp.split(' ')[1]}</td>
+                        <td>${row.status_gas}</td>
+                        <td>${row.status_api}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>
